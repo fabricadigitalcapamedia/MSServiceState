@@ -1,0 +1,240 @@
+---
+kind: Template
+apiVersion: template.openshift.io/v1
+metadata:
+  name: template-ocp
+  annotations:
+    iconClass: icon-other-unknown
+message: |-
+  Plantilla general proyectos Claro-Openshift
+objects:
+  - kind: Service
+    apiVersion: v1
+    metadata:
+      name: '${NAME}'
+      annotations:
+        description: ${DESCRIPTION}
+    spec:
+      ports:
+        - name: ${PORT}-tcp
+          port: ${{PORT}}
+          protocol: TCP
+          targetPort: ${{PORT}}
+      type: ClusterIP
+      selector:
+        name: '${NAME}'
+  - kind: Route
+    apiVersion: v1
+    metadata:
+      name: '${NAME}'
+    spec:
+      path: "/"
+      to:
+        kind: Service
+        name: '${NAME}'
+      port:
+        targetPort: ${PORT}-tcp
+  - kind: ImageStream
+    apiVersion: v1
+    metadata:
+      name: '${NAME}'
+      annotations:
+        description: Imagen para el despliegue - ${DESCRIPTION}
+  - kind: BuildConfig
+    apiVersion: v1
+    metadata:
+      name: '${NAME}'
+      annotations:
+        description: ${DESCRIPTION}
+        template.alpha.openshift.io/wait-for-ready: 'true'
+    spec:
+      source:
+        type: Binary
+      strategy:
+        dockerStrategy:
+          dockerfilePath: Dockerfile
+          env:
+            - name: 'PORT'
+              value: ${PORT}
+      output:
+        to:
+          kind: ImageStreamTag
+          name: '${NAME}:${VERSION}'
+      triggers:
+        - imageChange: {}
+          type: ImageChange
+        - type: ConfigChange
+  - kind: Secret
+    apiVersion: v1
+    metadata:
+      name: '${NAME}'
+    data: ${{DATA_SECRET}}
+  - kind: ConfigMap
+    apiVersion: v1
+    metadata:
+      name: '${NAME}'
+    data: ${{DATA_CONFIGMAP}}
+  - kind: DeploymentConfig
+    apiVersion: apps.openshift.io/v1
+    metadata:
+      name: '${NAME}'
+      annotations:
+        description: ${DESCRIPTION}
+        template.alpha.openshift.io/wait-for-ready: 'true'
+      labels:
+        app: '${NAME}'
+        legado: ${LEGADO}
+        proyecto: ${PROYECTO}
+        subproyecto: ${SUBPROYECTO}
+        tecnologia: ${TECNOLOGIA}
+    spec:
+      replicas: '${{MIN_REPLICAS}}'
+      strategy:
+        type: Rolling
+        activeDeadlineSeconds: 21600
+        resources: {}
+        rollingParams:
+          intervalSeconds: 1
+          maxSurge: 10%
+          maxUnavailable: 10%
+          timeoutSeconds: 300
+          updatePeriodSeconds: 1
+      triggers:
+        - type: ImageChange
+          imageChangeParams:
+            automatic: true
+            containerNames:
+              - ${NAME}
+            from:
+              kind: ImageStreamTag
+              name: '${NAME}:${VERSION}'
+        - type: ConfigChange
+      selector:
+        name: '${NAME}'
+      template:
+        metadata:
+          name: '${NAME}'
+          labels:
+            name: '${NAME}'
+        spec:
+          containers:
+            - name: ${NAME}
+              image: ''
+              ports:
+                - containerPort: ${{PORT}}
+                  protocol: 'TCP'
+              type: 'Recreate'
+              resources:
+                limits:
+                  cpu: '${CPU_LIMIT}'
+                  memory: '${MEMORY_LIMIT}'
+              envFrom:
+                - configMapRef:
+                    name: '${NAME}'
+                - secretRef:
+                    name: '${NAME}'
+              readinessProbe:
+                tcpSocket:
+                  port: ${{PORT}}
+                initialDelaySeconds: 15
+                timeoutSeconds: 1
+                periodSeconds: 20
+                successThreshold: 1
+                failureThreshold: 5
+  - apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+    metadata:
+      name: ${NAME}
+    spec:
+      maxReplicas: ${{MAX_REPLICAS}}
+      minReplicas: ${{MIN_REPLICAS}}
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 120
+      scaleTargetRef:
+        apiVersion: apps.openshift.io/v1
+        kind: DeploymentConfig
+        name: ${NAME}
+      metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: ${{CPU_TARGET_AVERAGE_UTILIZATION}}
+      - type: Resource
+        resource:
+          name: memory
+          target:
+            type: Utilization
+            averageUtilization: ${{MEMORY_TARGET_AVERAGE_UTILIZATION}}
+parameters: 
+  - name: NAME 
+    description: Nombre de la aplicación a desplegar 
+    value: 'mscustomebridgetabcloud' 
+  - name: VERSION 
+    description: versión de la aplicación, actualmente se define versión latest para todos los despliegues, en futuro se utilizará un método de versionamiento. 
+    value: latest
+  - name: MEMORY_LIMIT
+    displayName: Memory Limit
+    description: Cantidad máxima de memoria que puede utilizar el contenedor.
+    required: true
+    value: 250Mi
+  - name: CPU_LIMIT
+    displayName: CPU Limit
+    description: Cantidad máxima de procesador que puede utilizar el contenedor.
+    required: true
+    value: 50m
+  - name: MIN_REPLICAS
+    displayName: Minimo de Pods
+    description: Cantidad minima de pods.
+    required: true
+    value: '1'
+  - name: MAX_REPLICAS
+    displayName: Maximo de Pods
+    description: Cantidad maxima de pods.
+    required: true
+    value: '1'
+  - name: CPU_TARGET_AVERAGE_UTILIZATION
+    description: Valor objetivo de CPU para el autoescalado
+    value: '75'
+  - name: MEMORY_TARGET_AVERAGE_UTILIZATION 
+    description: Valor objetivo de memoria para el autoescalado. 
+    value: '75'
+  - name: DESCRIPTION 
+    description: Descripción de la aplicación. 
+    value: servicio que permite conexion hacia claropay y validar OTP
+  - name: PORT 
+    description: Puerto a usar para la exposición de la aplicación. 
+    value: "8080" 
+  - name: PROYECTO 
+    description: Etiqueta del nombre de proyecto 
+    value: SALESFORCE 
+  - name: SUBPROYECTO 
+    description: Etiqueta del nombre de sub-proyecto, si no aplica se define el mismo nombre del proyecto. 
+    value: SALESFORCE 
+  - name: LEGADO 
+    description: Etiqueta de legados definidos para el proyecto, estos van separados por guion bajo "_" (LEGADOA_LEGADOB). 
+    value: BRIDGE 
+  - name: TECNOLOGIA 
+    description: Etiqueta de la tecnología a usar, los valores validos serán= SpringBoot-Maven, NodeJS, NestJS. 
+    value: NestJS
+  - name: DATA_CONFIGMAP
+    description: "Variables de entorno a usar en deployment. Ejm.= {'ENV_1': 'Valor_1', 'ENV_2': 'Valor_2', ....}"
+    value: |
+      {
+        "PORT": "8080",
+        "TIMEOUT": "30000",
+        "ELASTIC_APM_SERVER_URL": "http://100.69.7.130:8200",
+        "ELASTIC_APM_ENVIRONMENT": "SALESFORCEQA-ARO",
+        "ELASTIC_APM_ACTIVE": "true",
+        "DB_USERNAME": "BRIDGE_ARO",
+        "DB_CONNECTSTRING": "(DESCRIPTION =(ADDRESS = (PROTOCOL = TCP)(HOST =lnxdbdevhw.comcel.com.co)(PORT = 1580))(CONNECT_DATA =(SERVER = DEDICATED)(SERVICE_NAME =CIM)))",
+        "CONSULT":"NKADM.PKG_TBL_BRIDGE_EQ_TEC.PRC_CONSULT_TB"
+      }
+  - name: DATA_SECRET
+    description: "Variables de entorno con datos sensibles a usar en deployment, los valores deben estar codificadas en base64. Ejm.= {'password': 'SG9sYV9tdW5kbyE=', ...}"
+    value: |
+      {
+         "DB_PASSWORD": "Q29sX2JvZ18wNzUzODEq"
+      }
